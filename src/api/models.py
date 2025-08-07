@@ -211,7 +211,7 @@ class Block(BaseModel):
     )
 
 
-class LearningMaterialTask(Task):
+class   LearningMaterialTask(Task):
     blocks: List[Block]
 
 
@@ -315,7 +315,7 @@ class DraftQuestion(BaseModel):
     context: Dict | None
     coding_languages: List[str] | None
     scorecard_id: Optional[int] = None
-    title: str
+    title: Optional[str]
 
 
 class PublishedQuestion(DraftQuestion):
@@ -642,13 +642,17 @@ class UserCohort(BaseModel):
 
 class AIChatRequest(BaseModel):
     user_response: str
-    task_type: TaskType
+    task_type: TaskType 
     question: Optional[DraftQuestion] = None
     chat_history: Optional[List[Dict]] = None
     question_id: Optional[int] = None
     user_id: int
     task_id: int
     response_type: Optional[ChatResponseType] = None
+
+
+class GenerateQuestionsResponse(BaseModel):
+    questions: List[str]
 
 
 class MarkTaskCompletedRequest(BaseModel):

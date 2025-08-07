@@ -15,6 +15,7 @@ if os.path.exists(env_path):
 class Settings(BaseSettings):
     google_client_id: str
     openai_api_key: str
+    openai_api_base_url: str
     s3_bucket_name: str | None = None  # only relevant when running the code remotely
     s3_folder_name: str | None = None  # only relevant when running the code remotely
     local_upload_folder: str = (
@@ -28,7 +29,7 @@ class Settings(BaseSettings):
     phoenix_endpoint: str | None = None
     phoenix_api_key: str | None = None
 
-    model_config = SettingsConfigDict(env_file=join(root_dir, ".env"))
+    model_config = SettingsConfigDict(env_file=join(root_dir, ".env"), extra="allow")
 
 
 @lru_cache

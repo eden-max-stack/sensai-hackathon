@@ -12,7 +12,6 @@ async def send_slack_notification(message: Dict, webhook_url: str):
                     f"Failed to send Slack notification: {response.status} - {response_text}"
                 )
 
-
 async def send_slack_notification_for_new_user(user: Dict):
     """
     Send Slack notification when a new user is created.

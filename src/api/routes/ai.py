@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 from api.config import openai_plan_to_model_name
 from api.models import (
+    GenerateQuestionsResponse,
+    LearningMaterialTask,
     TaskAIResponseType,
     AIChatRequest,
     ChatResponseType,
@@ -54,6 +56,10 @@ from api.db.utils import construct_description_from_blocks
 from api.utils.s3 import (
     download_file_from_s3_as_bytes,
     get_media_upload_s3_key_from_uuid,
+)
+from api.utils.generate_questions import (
+    extract_blooms_taxonomy,
+    preprocess_learning_material
 )
 from api.utils.audio import prepare_audio_input_for_ai
 from api.settings import tracer
@@ -115,8 +121,15 @@ def get_ai_message_for_chat_history(ai_message: Dict) -> str:
 def get_user_message_for_chat_history(user_response: str) -> str:
     return f"""Student's Response:\n```\n{user_response}\n```"""
 
+@router.post("/generate-questions")
+async def generate_questions_using_ai(request: LearningMaterialTask): #-> GenerateQuestionsResponse
+    learning_material = preprocess_learning_material(request)["full_text"]
 
-@router.post("/chat")
+    bloom_taxonomy_tags = extract_blooms_taxonomy(learning_material)
+    return bloom_taxonomy_tags
+
+
+@router.post("/chat")   
 async def ai_response_for_question(request: AIChatRequest):
     metadata = {"task_id": request.task_id, "user_id": request.user_id}
 

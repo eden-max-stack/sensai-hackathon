@@ -475,58 +475,59 @@ async def init_db():
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        if exists(sqlite_db_path):
-            if not await check_table_exists(code_drafts_table_name, cursor):
-                await create_code_drafts_table(cursor)
+        # if exists(sqlite_db_path):
+        #     if not await check_table_exists(code_drafts_table_name, cursor):
+        #         await create_code_drafts_table(cursor)
 
-            await conn.commit()
-            return
+        #     await conn.commit()
+        #     return
 
-        try:
-            await create_organizations_table(cursor)
+        # try:
+        await create_organizations_table(cursor)
 
-            await create_org_api_keys_table(cursor)
+        await create_org_api_keys_table(cursor)
 
-            await create_users_table(cursor)
+        await create_users_table(cursor)
 
-            await create_user_organizations_table(cursor)
+        await create_user_organizations_table(cursor)
 
-            await create_milestones_table(cursor)
+        await create_milestones_table(cursor)
 
-            await create_cohort_tables(cursor)
+        await create_cohort_tables(cursor)
 
-            await create_courses_table(cursor)
+        await create_courses_table(cursor)
 
-            await create_course_cohorts_table(cursor)
+        await create_course_cohorts_table(cursor)
 
-            await create_tasks_table(cursor)
+        await create_tasks_table(cursor)
 
-            await create_questions_table(cursor)
+        await create_questions_table(cursor)
 
-            await create_scorecards_table(cursor)
+        await create_scorecards_table(cursor)
 
-            await create_question_scorecards_table(cursor)
+        await create_question_scorecards_table(cursor)
 
-            await create_chat_history_table(cursor)
+        await create_chat_history_table(cursor)
 
-            await create_task_completion_table(cursor)
+        await create_task_completion_table(cursor)
 
-            await create_course_tasks_table(cursor)
+        await create_course_tasks_table(cursor)
 
-            await create_course_milestones_table(cursor)
+        await create_course_milestones_table(cursor)
 
-            await create_course_generation_jobs_table(cursor)
+        await create_course_generation_jobs_table(cursor)
 
-            await create_task_generation_jobs_table(cursor)
+        await create_task_generation_jobs_table(cursor)
 
-            await create_code_drafts_table(cursor)
+        await create_code_drafts_table(cursor)
 
-            await conn.commit()
+    
+        await conn.commit()
 
-        except Exception as exception:
-            # delete db
-            os.remove(sqlite_db_path)
-            raise exception
+        # except Exception as exception:
+        #     # delete db
+        #     os.remove(sqlite_db_path)
+        #     raise exception
 
 
 async def delete_useless_tables():
