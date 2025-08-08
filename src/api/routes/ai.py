@@ -61,6 +61,7 @@ from api.utils.generate_questions import (
     extract_blooms_taxonomy,
     preprocess_learning_material
 )
+from api.utils.mcp_client_setup import MCPKnowledgeGraphClient
 from api.utils.audio import prepare_audio_input_for_ai
 from api.settings import tracer
 from opentelemetry.trace import StatusCode, Status
@@ -123,9 +124,30 @@ def get_user_message_for_chat_history(user_response: str) -> str:
 
 @router.post("/generate-questions")
 async def generate_questions_using_ai(request: LearningMaterialTask): #-> GenerateQuestionsResponse
-    learning_material = preprocess_learning_material(request)["full_text"]
+    try:
+        learning_material = preprocess_learning_material(request)["full_text"]
 
-    bloom_taxonomy_tags = extract_blooms_taxonomy(learning_material)
+        bloom_taxonomy_tags = extract_blooms_taxonomy(learning_material)
+
+        mcp_server_path = "C:\\Users\\maxim\\sensai\\sensai-ai\\src\\api\\utils\\generate_questions_mcp.py"
+
+        # async with MCPKnowledgeGraphClient(mcp_server_path) as client:
+        #     pipeline_result = await client.full_pipeline(learning_material, bloom_taxonomy_tags)
+            
+        #     return {
+        #         "status": "success",
+        #         "bloom_taxonomy": bloom_taxonomy_tags,
+        #         "pipeline_result": pipeline_result,
+        #         "knowledge_graph": pipeline_result.get("knowledge_graph", {}),
+        #         "entropy_analysis": pipeline_result.get("entropy_analysis", {})
+        #     }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "bloom_taxonomy": bloom_taxonomy_tags if 'bloom_taxonomy_tags' in locals() else None
+        }
     return bloom_taxonomy_tags
 
 
