@@ -5,6 +5,7 @@ import logging
 from collections import Counter, defaultdict
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
+from fastapi.params import Body
 import openai
 import os
 from pathlib import Path
@@ -333,7 +334,7 @@ kg_agent = KnowledgeGraphConstructorAgent(openai_client)
 entropy_agent = TokenLevelEntropyGenerator(openai_client)
 
 @mcp.tool()
-async def construct_knowledge_graph(learning_material: str, bloom_tags: dict) -> str:
+async def construct_knowledge_graph(learning_material: str, bloom_tags: dict):
     """
     Construct a knowledge graph from learning material and Bloom's taxonomy tags
     
@@ -441,15 +442,14 @@ async def full_pipeline(learning_material: str, bloom_tags: dict) -> str:
     Returns:
         JSON string containing the complete pipeline results
     """
-    try:
+    try:    
         # Step 1: Construct knowledge graph
         logger.info("Constructing knowledge graph...")
         kg = await kg_agent.construct_knowledge_graph(learning_material, bloom_tags)
-        
         # Step 2: Generate entropy scores
         logger.info("Generating entropy scores...")
         enhanced_kg = await entropy_agent.generate_entropy_scores(kg, learning_material, bloom_tags)
-        
+
         # Convert to serializable format
         result = {
             "pipeline_status": "completed",
@@ -489,11 +489,54 @@ async def full_pipeline(learning_material: str, bloom_tags: dict) -> str:
                 ]
             }
         }
-        
         return json.dumps(result, indent=2)
         
     except Exception as e:
         return f"Error in full pipeline: {str(e)}"
+    
 
 if __name__ == "__main__":
-    mcp.run()
+    from fastapi import FastAPI, Request
+    from fastapi.responses import JSONResponse
+    import uvicorn
+
+    app = FastAPI()
+
+    # Error handler
+    @app.exception_handler(Exception)
+    async def universal_exception_handler(request: Request, exc: Exception):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": str(exc),
+                "endpoint": str(request.url)
+            }
+        )
+
+    # Convert MCP tools to FastAPI endpoints
+    @app.post("/construct_knowledge_graph")
+    async def construct_kg(learning_material: str, bloom_tags: dict):
+        return await mcp.call_tool("construct_knowledge_graph", {
+            "learning_material": learning_material,
+            "bloom_tags": bloom_tags
+        })
+
+    @app.post("/generate_entropy_scores")
+    async def generate_entropy(knowledge_graph: dict, learning_material: str, bloom_tags: dict):
+        return await mcp.call_tool("generate_entropy_scores", {
+            "knowledge_graph": knowledge_graph,
+            "learning_material": learning_material,
+            "bloom_tags": bloom_tags
+        })
+
+    @app.post("/full_pipeline")
+    async def full_pipeline(payload: dict = Body(...)):
+        print(f"learning material: {payload["learning_material"]}")
+        print(f"bloom tags: {payload["bloom_tags"]}")
+        return await mcp.call_tool("full_pipeline", {
+            "learning_material": payload["learning_material"],
+            "bloom_tags": payload["bloom_tags"]
+        })
+
+    uvicorn.run(app, host="localhost", port=8000)

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 import boto3
 from botocore.exceptions import ClientError
 from api.settings import settings
-from api.utils.logging import logger
+from api.utils.logging1 import logger
 from api.utils.s3 import (
     generate_s3_uuid,
     get_media_upload_s3_key_from_uuid,

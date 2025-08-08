@@ -1,11 +1,11 @@
 import pytest
 import logging
 from unittest.mock import patch, MagicMock, call
-from src.api.utils.logging import setup_logging
+from src.api.utils.logging1 import setup_logging
 
 
 class TestLoggingUtils:
-    @patch("src.api.utils.logging.logging")
+    @patch("src.api.utils.logging1.logging")
     def test_setup_logging(self, mock_logging):
         """Test the setup_logging function."""
         # Setup mocks
@@ -24,7 +24,7 @@ class TestLoggingUtils:
         logger = setup_logging("/path/to/log.log")
 
         # Check results
-        mock_logging.getLogger.assert_called_once_with("src.api.utils.logging")
+        mock_logging.getLogger.assert_called_once_with("src.api.utils.logging1")
         mock_logger.setLevel.assert_called_once_with(logging.INFO)
 
         # Check file handler setup

@@ -7,7 +7,7 @@ from openai import OpenAI
 
 from pydantic import BaseModel
 
-from api.utils.logging import logger
+from api.utils.logging1 import logger
 
 # Test log message
 logger.info("Logging system initialized")

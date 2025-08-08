@@ -1,7 +1,7 @@
 import sqlite3
 from typing import List, Tuple
 from api.config import sqlite_db_path
-from api.utils.logging import logger
+from api.utils.logging1 import logger
 import aiosqlite
 from contextlib import asynccontextmanager
 
