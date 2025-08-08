@@ -8,8 +8,15 @@ from dataclasses import dataclass
 from fastapi.params import Body
 import openai
 import os
-from pathlib import Path
 from dotenv import load_dotenv
+
+# from ..models import (
+#     TaskType,
+#     TaskInputType,
+#     TaskAIResponseType,
+#     QuestionType,
+#     ChatResponseType,
+# )
 
 # FastMCP imports
 from mcp.server.fastmcp import FastMCP
@@ -20,6 +27,111 @@ load_dotenv()
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+import asyncio
+import json
+import math
+import logging
+from collections import Counter, defaultdict
+from typing import Dict, List, Any, Optional, Tuple
+from dataclasses import dataclass
+from enum import Enum
+from fastapi.params import Body
+import openai
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+from pydantic import BaseModel
+
+# Define all required models directly in the file
+class TaskType(str, Enum):
+    QUIZ = "quiz"
+    LEARNING_MATERIAL = "learning_material"
+    
+    def __str__(self):
+        return self.value
+    
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.value == other
+        elif isinstance(other, TaskType):
+            return self.value == other.value
+        return False
+
+class QuestionType(str, Enum):
+    OPEN_ENDED = "subjective"
+    OBJECTIVE = "objective"
+    
+    def __str__(self):
+        return self.value
+    
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.value == other
+        elif isinstance(other, QuestionType):
+            return self.value == other.value
+        return False
+
+class TaskAIResponseType(str, Enum):
+    CHAT = "chat"
+    EXAM = "exam"
+    
+    def __str__(self):
+        return self.value
+    
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.value == other
+        elif isinstance(other, TaskAIResponseType):
+            return self.value == other.value
+        return False
+
+class TaskInputType(str, Enum):
+    CODE = "code"
+    TEXT = "text"
+    AUDIO = "audio"
+    
+    def __str__(self):
+        return self.value
+    
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.value == other
+        elif isinstance(other, TaskInputType):
+            return self.value == other.value
+        return False
+
+class ChatResponseType(str, Enum):
+    TEXT = "text"
+    CODE = "code"
+    AUDIO = "audio"
+
+class Block(BaseModel):
+    type: str
+    text: str
+
+class DraftQuestion(BaseModel):
+    blocks: List[Block]
+    answer: List[Block]
+    type: QuestionType
+    input_type: TaskInputType
+    response_type: TaskAIResponseType
+    context: Optional[Dict] = None
+    coding_languages: Optional[List[str]] = None
+    scorecard_id: Optional[int] = None
+    title: Optional[str] = None
+
+class AIChatRequest(BaseModel):
+    user_response: str
+    task_type: TaskType
+    question: Optional[DraftQuestion] = None
+    chat_history: Optional[List[Dict]] = None
+    question_id: Optional[int] = None
+    user_id: int
+    task_id: int
+    response_type: Optional[ChatResponseType] = None
+    hint: Optional[str] = None
+
 
 @dataclass
 class KnowledgeGraphNode:
@@ -163,6 +275,193 @@ Focus on creating meaningful connections that would help generate educational qu
             logger.error(f"Error constructing knowledge graph: {e}")
             return KnowledgeGraph(nodes=[], relationships=[], metadata={})
 
+
+class QuestionBankGenerator:
+    def __init__(self, openai_client: OpenAIClient):
+        self.openai_client = openai_client  
+
+    async def generate_question_bank(self, kg: KnowledgeGraph, learning_material: str, bloom_tags: dict, num_mcqs: int = 10) -> Dict[str, Any]:
+
+        """Generate question bank from enhanced knowledge graph and learning material"""
+        
+        # Extract high-entropy concepts to focus on
+        high_entropy_nodes = sorted(
+            [node for node in kg.nodes if node.entropy_score > 6.0],
+            key=lambda x: x.entropy_score,
+            reverse=True
+        )[:10]  # Top 10 high-entropy concepts
+        
+        # Prepare concept list for prompt
+        concept_list = "\n".join(
+            f"- {node.label} (Entropy: {node.entropy_score:.1f}, Bloom Relevance: {node.properties.get('bloom_relevance', ['N/A'])})"
+            for node in high_entropy_nodes
+        )
+        
+        # Prepare the prompt for question generation
+        prompt = f"""
+    You are an expert educational question generator. Create questions based on BOTH the learning material and knowledge graph.
+
+    LEARNING MATERIAL EXCERPTS:
+    {learning_material[:2000]}... [truncated for brevity]
+
+    KEY CONCEPTS FROM KNOWLEDGE GRAPH (sorted by importance):
+    {concept_list}
+
+    BLOOM'S TAXONOMY DISTRIBUTION:
+    {json.dumps(bloom_tags, indent=2)}
+
+    INSTRUCTIONS:
+    1. Generate {num_mcqs} MCQs that DIRECTLY relate to the learning material
+    2. For each question:
+    - Base it on specific content from the learning material
+    - Connect it to knowledge graph concepts
+    - For MCQs: Provide 4 plausible options with one clearly correct answer
+    - Include a helpful hint that references the learning material
+    - Tag with the appropriate Bloom's level
+    - Prioritize high-entropy concepts but maintain broad coverage
+
+    QUESTION CRITERIA:
+    - MCQs should test understanding of key concepts
+    
+    - Questions should be answerable from the material
+    - Avoid trivial or overly obvious questions
+    - Distractors should be plausible but incorrect
+    - Ensure you don't repeat any key, value pairs in the generated structure
+
+    OUTPUT FORMAT (JSON only):
+    {{
+        "questions": [
+            {{
+                "question_id": 1,
+                "question_type": "MCQ",
+                "question_text": "...",
+                "material_reference": "...",
+                "options": ["...", "...", "...", "..."],  // Only for MCQ
+                "correct_answer": "...",
+                "hint": "...",
+                "bloom_level": "...",
+                "entropy_score": 0.0,
+                "concept_id": "...",
+                "concept_label": "..."
+            }}
+        ],
+        "metadata": {{
+            "material_coverage": "...",
+            "bloom_distribution": {{"remembering": 0, ...}},
+            "entropy_distribution": {{"low": 0, "medium": 0, "high": 0}}
+        }}
+    }}
+    """
+
+        messages = [
+            {"role": "system", "content": "You are an expert educational question generator. Return only valid JSON that strictly follows the format."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        try:
+            response = await self.openai_client.generate_completion(messages)
+            
+            # Log the raw response for debugging
+            logger.info(f"Raw OpenAI response length: {len(response)}")
+            logger.info(f"Raw response: {response[:500]}...")
+            
+            # Clean and validate JSON response
+            response = response.strip()
+            if not response:
+                logger.error("Empty response from OpenAI")
+                return {"questions": [], "metadata": {"error": "Empty response"}}
+            
+            # Handle potential truncation
+            if response.count('"') % 2 != 0:
+                logger.warning("Unmatched quotes detected, attempting to fix")
+                response = response + '"'
+            
+            # Ensure proper JSON structure
+            if not response.endswith('}'):
+                logger.warning("Response appears truncated, attempting to fix")
+                last_brace = response.rfind('}')
+                if last_brace > 0:
+                    response = response[:last_brace + 1]
+            
+            question_data = None
+            try:
+                question_data = json.loads(response)
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON parsing failed: {e}")
+                # logger.error(f"Response preview: {response[:200]}...")
+                question_data = response
+            # Try to extract valid JSON from response
+            import re
+            json_pattern = r'\{.*\}'
+            matches = re.findall(json_pattern, response, re.DOTALL)
+            if matches:
+                for match in matches:
+                    try:
+                        question_data = json.loads(match)
+                        break
+                    except:
+                        continue
+            else:
+                return {"questions": [], "metadata": {"error": "Invalid JSON format"}}
+
+            # print(f"question_data: {question_data}")
+            
+            # Convert to QuizTask-compatible format
+            formatted_questions = []
+            # print(f"question_data keys: {question_data}")
+            for q in question_data.get("questions", []):
+                question_type = QuestionType.OBJECTIVE if q["question_type"] == "MCQ" else QuestionType.OPEN_ENDED
+                
+                # Create blocks for question content
+                question_blocks = [
+                    Block(type="paragraph", text=q["question_text"])
+                ]
+                
+                # Create blocks for correct answer
+                answer_blocks = [
+                    Block(type="paragraph", text=q["correct_answer"])
+                ]
+                
+                # Create options blocks for MCQ
+                options_blocks = []
+                if q["question_type"] == "MCQ":
+                    for option in q["options"]:
+                        options_blocks.append(Block(type="paragraph", text=option))
+                
+                # Compose context blocks with hint and material reference
+                context_blocks = [
+                    Block(type="paragraph", text=f"Hint: {q['hint']}"),
+                    Block(type="paragraph", text=f"Reference: {q.get('material_reference', '')}")
+                ]
+                
+                formatted_question = {
+                    "question_id": q["question_id"],
+                    "question_type": q["question_type"].lower(),
+                    "blocks": [block.model_dump() for block in question_blocks],
+                    "answer": [block.model_dump() for block in answer_blocks],
+                    "options": [block.model_dump() for block in options_blocks] if options_blocks else None,
+                    "hint": q["hint"],
+                    "bloom_level": q["bloom_level"],
+                    "entropy_score": q.get("entropy_score", 0.0),
+                    "concept_id": q.get("concept_id", ""),
+                    "concept_label": q.get("concept_label", ""),
+                    "context": [block.model_dump() for block in context_blocks]
+                }
+                
+                formatted_questions.append(formatted_question)
+            
+            return {
+                "questions": formatted_questions,
+                "metadata": question_data.get("metadata", {})
+            }
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing question bank JSON: {e}")
+            return {"questions": [], "metadata": {}}
+        except Exception as e:
+            logger.error(f"Error generating question bank: {e}")
+            return {"questions": [], "metadata": {}}
+        
 class TokenLevelEntropyGenerator:
     """Agent responsible for generating token-level entropy for KG entities and relationships"""
     
@@ -332,6 +631,7 @@ mcp = FastMCP("Knowledge Graph Entropy Server")
 openai_client = OpenAIClient()
 kg_agent = KnowledgeGraphConstructorAgent(openai_client)
 entropy_agent = TokenLevelEntropyGenerator(openai_client)
+question_bank_generator_agent = QuestionBankGenerator(openai_client)
 
 @mcp.tool()
 async def construct_knowledge_graph(learning_material: str, bloom_tags: dict):
@@ -430,71 +730,94 @@ async def generate_entropy_scores(knowledge_graph: dict, learning_material: str,
     except Exception as e:
         return f"Error generating entropy scores: {str(e)}"
 
+
 @mcp.tool()
-async def full_pipeline(learning_material: str, bloom_tags: dict) -> str:
+async def generate_question_bank(knowledge_graph: dict, learning_material: str, bloom_tags: dict, num_mcqs: int = 10) -> str:
+
     """
-    Run complete pipeline: construct KG and generate entropy scores
+    Generate question bank from knowledge graph
     
     Args:
-        learning_material: The learning material text to process
-        bloom_tags: Bloom's taxonomy distribution scores with keys: remembering, understanding, applying, analyzing, evaluating, creating
+        knowledge_graph: Knowledge graph data structure
+        learning_material: Original learning material text
+        bloom_tags: Bloom's taxonomy distribution scores
+        num_mcqs: Number of multiple choice questions to generate (default: 15)
     
     Returns:
-        JSON string containing the complete pipeline results
+        JSON string containing the generated question bank
     """
-    try:    
-        # Step 1: Construct knowledge graph
-        logger.info("Constructing knowledge graph...")
-        kg = await kg_agent.construct_knowledge_graph(learning_material, bloom_tags)
-        # Step 2: Generate entropy scores
-        logger.info("Generating entropy scores...")
-        enhanced_kg = await entropy_agent.generate_entropy_scores(kg, learning_material, bloom_tags)
-
-        # Convert to serializable format
-        result = {
-            "pipeline_status": "completed",
-            "processing_steps": [
-                "Knowledge Graph Construction",
-                "Token-Level Entropy Generation"
-            ],
-            "knowledge_graph": {
-                "nodes": [
-                    {
-                        "id": node.id,
-                        "label": node.label,
-                        "properties": node.properties,
-                        "entropy_score": node.entropy_score
-                    }
-                    for node in enhanced_kg.nodes
-                ],
-                "relationships": [
-                    {
-                        "source": rel.source,
-                        "target": rel.target,
-                        "relationship_type": rel.relationship_type,
-                        "properties": rel.properties,
-                        "entropy_score": rel.entropy_score
-                    }
-                    for rel in enhanced_kg.relationships
-                ],
-                "metadata": enhanced_kg.metadata
-            },
-            "entropy_analysis": {
-                "total_nodes": len(enhanced_kg.nodes),
-                "total_relationships": len(enhanced_kg.relationships),
-                "avg_node_entropy": sum(node.entropy_score for node in enhanced_kg.nodes) / len(enhanced_kg.nodes) if enhanced_kg.nodes else 0,
-                "high_entropy_nodes": [
-                    {"id": node.id, "label": node.label, "entropy": node.entropy_score}
-                    for node in enhanced_kg.nodes if node.entropy_score > 6.0
-                ]
-            }
-        }
-        return json.dumps(result, indent=2)
+    try:
+        logger.info("Generating question bank from knowledge graph...")
+        
+        # Reconstruct KG from data
+        nodes = [KnowledgeGraphNode(**node) for node in knowledge_graph.get("nodes", [])]
+        relationships = [KnowledgeGraphRelationship(**rel) for rel in knowledge_graph.get("relationships", [])]
+        enhanced_kg = KnowledgeGraph(nodes=nodes, relationships=relationships, metadata=knowledge_graph.get("metadata", {}))
+        
+        question_result = await question_bank_generator_agent.generate_question_bank(
+            kg=enhanced_kg,
+            learning_material=learning_material,
+            bloom_tags=bloom_tags,
+            num_mcqs=num_mcqs,
+        )
+        
+        logger.info("Question bank generated successfully")
+        return question_result
         
     except Exception as e:
-        return f"Error in full pipeline: {str(e)}"
+        logger.error(f"Error generating question bank: {str(e)}")
+        return f"Error generating question bank: {str(e)}"
     
+@mcp.tool()
+async def full_pipeline(learning_material: str, bloom_tags: dict):
+    try:    
+        # Step 1: Construct knowledge graph
+        kg = await kg_agent.construct_knowledge_graph(learning_material, bloom_tags)
+        
+        # Step 2: Generate entropy scores
+        enhanced_kg = await entropy_agent.generate_entropy_scores(kg, learning_material, bloom_tags)
+        
+        # Step 3: Generate question bank
+        question_result = await question_bank_generator_agent.generate_question_bank(
+            enhanced_kg, learning_material, bloom_tags
+        )
 
+        # Ensure question_result is a dict (it might come as JSON string)
+        if isinstance(question_result, str):
+            try:
+                question_result = json.loads(question_result)
+            except json.JSONDecodeError:
+                question_result = {"questions": [], "metadata": {}}
+
+        # Convert to serializable format with proper error handling
+        result = {
+            "pipeline_status": "completed",
+            "knowledge_graph": {
+                "nodes": [n.__dict__ for n in enhanced_kg.nodes],
+                "relationships": [r.__dict__ for r in enhanced_kg.relationships],
+                "metadata": enhanced_kg.metadata
+            },
+            "question_bank": {
+                "questions": question_result.get("questions", []),
+                "metadata": {
+                    **question_result.get("metadata", {}),
+                    "total_questions": len(question_result.get("questions", [])),
+                    "mcq_count": sum(1 for q in question_result.get("questions", []) 
+                              if q.get("question_type", "").lower() == "mcq"),
+                    "saq_count": sum(1 for q in question_result.get("questions", []) 
+                              if q.get("question_type", "").lower() == "saq")
+                }
+            }
+        }
+        print(result)
+        return json.dumps(result, indent=2)
+    
+    except Exception as e:
+        logger.error(f"Error in full pipeline: {str(e)}")
+        return json.dumps({
+            "error": str(e),
+            "pipeline_status": "failed"
+        }, indent=2)
 if __name__ == "__main__":
     from fastapi import FastAPI, Request
     from fastapi.responses import JSONResponse
@@ -525,6 +848,14 @@ if __name__ == "__main__":
     @app.post("/generate_entropy_scores")
     async def generate_entropy(knowledge_graph: dict, learning_material: str, bloom_tags: dict):
         return await mcp.call_tool("generate_entropy_scores", {
+            "knowledge_graph": knowledge_graph,
+            "learning_material": learning_material,
+            "bloom_tags": bloom_tags
+        })
+    
+    @app.post("/generate_question_bank")
+    async def generate_question_bank(knowledge_graph: dict, learning_material: str, bloom_tags: dict):
+        return await mcp.call_tool("generate_question_bank", {
             "knowledge_graph": knowledge_graph,
             "learning_material": learning_material,
             "bloom_tags": bloom_tags

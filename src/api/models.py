@@ -211,7 +211,7 @@ class Block(BaseModel):
     )
 
 
-class   LearningMaterialTask(Task):
+class LearningMaterialTask(Task):
     blocks: List[Block]
 
 
@@ -649,6 +649,7 @@ class AIChatRequest(BaseModel):
     user_id: int
     task_id: int
     response_type: Optional[ChatResponseType] = None
+    hint: Optional[str]
 
 
 class GenerateQuestionsResponse(BaseModel):

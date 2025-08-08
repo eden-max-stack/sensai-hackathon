@@ -23,7 +23,6 @@ class MCPKnowledgeGraphClient:
     async def _make_request(self, endpoint: str, payload: Dict[str, Any]):
         """Enhanced request handler with retry logic"""
         url = f"{self.base_url}/{endpoint}"
-        # print(f"payload sent: {payload}")
         try:
             async with self.session.post(url, json=payload) as response:
                 if response.status != 200:

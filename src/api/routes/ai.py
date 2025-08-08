@@ -12,6 +12,7 @@ import instructor
 import openai
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
+import requests
 from api.config import openai_plan_to_model_name
 from api.models import (
     GenerateQuestionsResponse,
@@ -122,36 +123,85 @@ def get_ai_message_for_chat_history(ai_message: Dict) -> str:
 def get_user_message_for_chat_history(user_response: str) -> str:
     return f"""Student's Response:\n```\n{user_response}\n```"""
 
-@router.post("/generate-questions")
-async def generate_questions_using_ai(request: LearningMaterialTask): #-> GenerateQuestionsResponse
-    try:
-        learning_material = preprocess_learning_material(request)["full_text"]
+from fastapi import APIRouter, HTTPException
+import requests
+import json
+from typing import List, Dict
 
+router = APIRouter()
+
+@router.post("/generate-questions")
+async def generate_questions_using_ai(request: LearningMaterialTask):
+    try:
+        # 1. Process learning material and generate questions
+        learning_material = preprocess_learning_material(request)["full_text"]
         bloom_taxonomy_tags = extract_blooms_taxonomy(learning_material)
 
         async with MCPKnowledgeGraphClient() as client:
             pipeline_result = await client.full_pipeline(learning_material, bloom_taxonomy_tags)
-
-
             result_str = pipeline_result[1]["result"]
-            result_json = json.loads(result_str) 
+            result_json = json.loads(result_str)
 
-            response = {
-                "status": "success",
-                "bloom_taxonomy": bloom_taxonomy_tags,
-                "pipeline_result": result_json
-            } 
+        # 2. Transform questions to match UpdateDraftQuizRequest format
+        quiz_questions = []
+        for q in result_json["question_bank"]["questions"]:
+            quiz_questions.append({
+                "question_id": q["question_id"],
+                "question_type": q["question_type"].lower(),  # Ensure lowercase
+                "question_text": q["question_text"],
+                "options": q["options"],
+                "correct_answer": q["correct_answer"],
+                "hint": q.get("hint", ""),
+                "metadata": {
+                    "bloom_level": q.get("bloom_level", "understanding"),
+                    "entropy_score": q.get("entropy_score", 0.0),
+                    "concept_id": q.get("concept_id", ""),
+                    "concept_label": q.get("concept_label", ""),
+                    "material_reference": q.get("material_reference", "")
+                }
+            })
 
-            return response
-        
-        
+        # 3. Prepare the request for the quiz endpoint
+        quiz_request = {
+            "title": f"Generated Quiz - {request.title or 'Untitled'}",
+            "questions": quiz_questions,
+            "scheduled_publish_at": None,
+            "status": "draft"
+        }
+
+        # 4. Get or create a task_id (you'll need to implement this)
+        task_id = 1  # Replace with actual task creation logic
+
+        # 5. Call the update endpoint
+        update_url = f"http://localhost:8000/task/{task_id}/quiz"  # Update port if needed
+        create_quiz_response = requests.post(
+            update_url,
+            json=quiz_request,
+            headers={"Content-Type": "application/json"}
+        )
+
+        # Check for errors
+        if create_quiz_response.status_code != 200:
+            raise HTTPException(
+                status_code=create_quiz_response.status_code,
+                detail=f"Quiz update failed: {create_quiz_response.text}"
+            )
+
+        # 6. Return combined response
+        return {
+            "status": "success",
+            "task_id": task_id,
+            "bloom_taxonomy": bloom_taxonomy_tags,
+            "quiz_update_response": create_quiz_response.json(),
+            "generated_questions": quiz_questions
+        }
+
     except Exception as e:
         return {
             "status": "error",
             "message": str(e),
             "bloom_taxonomy": bloom_taxonomy_tags if 'bloom_taxonomy_tags' in locals() else None
         }
-    return response
 
 
 # [
@@ -196,6 +246,8 @@ async def ai_response_for_question(request: AIChatRequest):
             session_id = (
                 f"quiz_{request.task_id}_{request.question_id}_{request.user_id}"
             )
+
+
     else:
         if request.task_id is None:
             raise HTTPException(
